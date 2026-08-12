@@ -1,96 +1,97 @@
 # Data Model: Agent Chat App (001)
 
-**Date**: 2026-08-12  
-**Storage**: None (in-memory, client session only — no database in v1)
+**Date**: 2026-08-12 (rev. 2 — Agno + assistant-ui + AG-UI)  
+**Storage**: None server-side (no Agno `db` in v1)
 
 ## Overview
 
-All persistent entities live in the **browser session** (React state). The backend
-translates each request's message list to an OpenAI chat completion call and
-streams tokens back. No server-side thread store.
+Message state lives in **assistant-ui runtime** (browser). Each send posts AG-UI
+`RunAgentInput` to `POST /agui`; Agno Agent streams AG-UI events back. Backend
+does not persist sessions.
 
 ## Entities
 
-### Thread (client-only)
+### Thread (assistant-ui runtime, client-only)
 
-| Field | Type | Required | Rules |
-|-------|------|----------|-------|
-| `messages` | `Message[]` | yes | Ordered ascending by send time; single thread per tab session |
-| `streamingMessageId` | `string \| null` | yes | At most one agent message in `streaming` status |
-| `inputDisabled` | `boolean` | derived | `true` when config error, streaming, or backend unreachable |
+| Field | Type | Rules |
+|-------|------|-------|
+| `messages` | `ThreadMessage[]` | Single thread; managed by `@assistant-ui/react` runtime |
+| `isRunning` | `boolean` | True while AG-UI stream active; blocks double-send |
 
-**Lifecycle**: Created empty on page load. Grows with each user send + agent
-reply. Discarded on full page refresh (no restore in v1).
+**Lifecycle**: Empty on load; lost on full page refresh (v1).
 
-### Message (client + wire)
+### ThreadMessage (assistant-ui / AG-UI aligned)
 
-| Field | Type | Required | Rules |
-|-------|------|----------|-------|
-| `id` | `string` (UUID) | yes | Client-generated for UI keys |
-| `role` | `"user" \| "assistant"` | yes | Maps to wire `ChatMessage.role` |
-| `content` | `string` | yes | Plain text; UTF-8 Traditional Chinese supported |
-| `status` | enum | client only | See state machine below |
-| `errorMessage` | `string \| null` | client only | Traditional Chinese; set when `status=error` |
+Maps to AG-UI message parts in `RunAgentInput.messages`:
 
-**Validation (client before send)**:
+| Field | Type | Rules |
+|-------|------|-------|
+| `role` | `user` \| `assistant` | Required |
+| `content` | `string` (text) | UTF-8; 繁中; max 4000 chars per message |
+| `id` | `string` | Client/runtime-generated |
 
-- User message: trimmed length ≥ 1, ≤ **4000** characters (v1 cap; prevents abuse)
-- Whitespace-only: reject (FR edge case)
+**Client validation**: non-empty trimmed content before send.
 
-**Validation (backend on receive)**:
+**Backend validation** (Agno/AG-UI layer): reject empty runs; enforce model token
+limits via OpenAI (errors surfaced as AG-UI error events → 繁中 in UI adapter).
 
-- `messages` array: length ≥ 1, ≤ **100** turns (50 user + 50 assistant max)
-- Each message: `role` ∈ {user, assistant}, `content` non-empty string, ≤ 4000 chars
-- Last message MUST be `role=user` (the new turn)
-- Alternation not enforced (OpenAI accepts consecutive same-role); UI always appends user then assistant
+### AG-UI Stream Events (wire, transient)
 
-### Message.status (client state machine)
+Standard event types from [AG-UI protocol](https://github.com/ag-ui-protocol/ag-ui)
+(referenced in `contracts/ag-ui-boundary.md`):
 
-```text
-[user sends]
-  → create user Message (status=complete)
-  → create assistant Message (status=streaming)
-  → on SSE delta: append content
-  → on SSE done: status=complete
-  → on SSE error / network fail: status=error, errorMessage set
-```
+| Event | Purpose |
+|-------|---------|
+| `TEXT_MESSAGE_CONTENT` | Incremental assistant text (streaming) |
+| `RUN_STARTED` / `RUN_FINISHED` | Stream lifecycle |
+| `RUN_ERROR` | Failure with message |
 
-**Invariant**: Only one message may be `streaming` at a time (FR double-submit guard).
+assistant-ui `@assistant-ui/react-ag-ui` converts these to UI message updates.
 
-### HealthStatus (backend response, ephemeral)
+### HealthStatus (`GET /v1/health` response)
 
-| Field | Type | Values |
-|-------|------|--------|
-| `status` | string | `healthy`, `degraded` |
-| `version` | string | API contract version e.g. `1.0.0` |
-| `checks.process` | string | `ok` |
-| `checks.model_credentials` | string | `ok`, `missing`, `invalid` |
-| `checks.model_reachable` | string | `ok`, `failed`, `skipped` |
+See `contracts/health.openapi.yaml`:
 
-**Rules**:
+| Field | Values |
+|-------|--------|
+| `status` | `healthy`, `degraded` |
+| `version` | `1.0.0` |
+| `checks.process` | `ok` |
+| `checks.model_credentials` | `ok`, `missing`, `invalid` |
+| `checks.model_reachable` | `ok`, `failed`, `skipped` |
 
-- `status=healthy` iff `model_credentials=ok` AND `model_reachable=ok`
-- `status=degraded` otherwise (including missing key)
+### Agno Agent (server config entity, not persisted)
 
-### StreamEvent (SSE wire, not persisted)
+| Setting | v1 value |
+|---------|----------|
+| `name` | `chat` |
+| `model` | `OpenAIChat` via `OPENAI_MODEL` |
+| `db` | **unset** |
+| `tools` | **none** |
+| `memory` / `knowledge` | **disabled** |
 
-See `contracts/openapi.yaml` components. Types: `delta`, `done`, `error`.
-
-## Relationships
+## State Transitions (UI)
 
 ```text
-Thread 1──* Message
-HealthStatus (standalone, per request)
-StreamEvent* (transient, per chat request)
+Composer submit
+  → append user message (complete)
+  → runtime isRunning=true
+  → AG-UI stream events append assistant content
+  → RUN_FINISHED → isRunning=false
+  → RUN_ERROR → show 繁中 error, isRunning=false
 ```
 
-## Boundary ownership (Constitution IV)
+## Boundary Ownership
 
-| Boundary | Owner translates | Schema |
-|----------|------------------|--------|
-| Browser → Backend | Frontend serializes `ChatStreamRequest` | `contracts/openapi.yaml` |
-| Backend → OpenAI | `backend/src/adapters/openai_adapter.py` | OpenAI API (external) |
-| Backend → Browser | Backend frames SSE events | `contracts/openapi.yaml` |
+| Boundary | Schema source |
+|----------|---------------|
+| Web → API chat | AG-UI `RunAgentInput` @ `POST /agui` |
+| API → OpenAI | Agno model driver (external) |
+| API → Web stream | AG-UI SSE events |
+| Web/ops → API health | OpenAPI `health.openapi.yaml` @ `GET /v1/health` |
 
-No shared TypeScript/Python type package in v1; OpenAPI is the contract source
-of truth. Frontend types generated or hand-maintained to match spec version.
+## Why not Agno session DB?
+
+Spec FR-010 and clarification **A** require no database and client-sent full
+history. Agno `db` would persist sessions server-side — out of scope for v1.
+Revisit only if product adds cross-device thread resume.

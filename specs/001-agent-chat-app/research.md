@@ -1,130 +1,176 @@
 # Research: Agent Chat App (001)
 
-**Date**: 2026-08-12  
+**Date**: 2026-08-12 (revised after architecture review)  
 **Feature**: `specs/001-agent-chat-app/spec.md`
 
-## R1 — Runtime topology (single deployable vs split)
+## Architecture Re-Analysis (2026-08-12)
 
-**Decision**: One **backend deployable** (FastAPI) owns the HTTP API, model adapter,
-and (when built) serves the compiled SPA as static assets. Local development MAY
-run Vite dev server + Uvicorn as **two processes** for hot reload only; production
-and CI validation use the single backend process serving `frontend/dist/`.
+User proposed:
 
-**Rationale**: Aligns with Constitution **I** (no distribution by default). The
-browser↔backend boundary is required by the product; splitting into separate
-*deployables* would add coordination without v1 benefit. Dev dual-process is a
-DX convenience, not a service boundary.
+```text
+apps/
+├── web/    # assistant-ui frontend
+└── api/    # Agno AgentOS backend
+```
 
-**Alternatives considered**:
+Previous plan used hand-rolled FastAPI SSE + custom React chat components. After
+comparing against spec, constitution, and the proposed stack:
 
-| Alternative | Rejected because |
-|-------------|------------------|
-| Separate frontend container/service in v1 | Violates single-deployable default; no scale/org justification |
-| HTMX-only server-rendered UI in one Python file | Valid for single process but weaker streaming UX tooling for incremental DOM updates |
-| Next.js full-stack | Heavier framework; blurs frontend/backend ownership for a minimal chat |
+| Criterion | Custom FastAPI + React | **Agno AgentOS + assistant-ui** |
+|-----------|------------------------|----------------------------------|
+| Streaming chat UX | Build state machine, auto-scroll, a11y | **assistant-ui primitives (production-grade)** |
+| Agent + model wiring | Custom OpenAI adapter | **Agno Agent (maintained SDK)** |
+| Boundary contract | Custom SSE schema (greenfield) | **AG-UI protocol (versioned, ecosystem)** |
+| Spec: no DB v1 | Natural fit | **Fit if `db=` omitted on Agent** |
+| Spec: full history from UI | Manual in fetch body | **AG-UI `RunAgentInput` + assistant-ui runtime** |
+| Spec: real external model | Direct OpenAI SDK | **Agno OpenAI model driver** |
+| Constitution II (deletion) | Smaller deps, more custom code | **Less custom code; framework surface area** |
+| Constitution IV (contracts) | Single OpenAPI file | **AG-UI protocol + thin `/v1/health` OpenAPI** |
+| v1 out-of-scope (tools/RAG) | Easy to omit | **Must explicitly disable Agno features** |
 
-## R2 — Backend language & framework
+**Conclusion**: The proposed stack is **better aligned** with the product (agent
+chat with streaming) and reduces bespoke streaming/UI code. Adopt it with
+explicit guardrails: no database, no tools/memory/knowledge, AG-UI boundary only,
+plus a thin project-owned `/v1/health` for spec-accurate credential semantics.
 
-**Decision**: **Python 3.12 + FastAPI + Uvicorn**, managed with **uv** (already
-used in repo tooling).
+---
 
-**Rationale**: Native async, first-class SSE/streaming support, small module
-surface, fits Constitution **II** (deletable modules). Team already uses `uv`.
+## R1 — Monorepo layout & runtime topology
 
-**Alternatives considered**: Node/Express (viable SSE but duplicates Python
-tooling); Go (more boilerplate for v1 scope).
+**Decision**: **`apps/api`** (Agno AgentOS) + **`apps/web`** (assistant-ui SPA).
+Production/CI single deployable: AgentOS serves built static assets from
+`apps/web/dist` (same pattern as before, different paths). Local dev runs
+Uvicorn + Vite (dual-process waiver unchanged).
 
-## R3 — External model provider
+**Rationale**: `apps/` is conventional for full-stack monorepos; separates
+contract owner (api) from UI owner (web) while keeping one ship artifact.
 
-**Decision**: **OpenAI Chat Completions API** (streaming) via official
-`openai` Python SDK. Credentials: `OPENAI_API_KEY` (required). Optional:
-`OPENAI_MODEL` (default `gpt-4o-mini`), `OPENAI_BASE_URL` (for compatible
-gateways).
+**Alternatives considered**: Flat `backend/`/`frontend/` (rejected: user
+requested `apps/`); Agno `agent-ui` Next template (rejected: user specified
+assistant-ui, not Agno's reference UI).
 
-**Rationale**: Spec clarification **B** requires a real external model with env
-credentials. OpenAI streaming is stable, well-documented, and supports
-Traditional Chinese. Health check validates key presence and performs a minimal
-API reachability probe (models list or lightweight call).
+## R2 — Backend: Agno AgentOS
 
-**Alternatives considered**: Anthropic (valid; deferred to keep one adapter in
-v1); local Ollama (still "external" but ops burden; out of v1 quickstart scope).
+**Decision**: **Agno AgentOS** with one `Agent`, **`AGUI` interface**, **no `db`**
+on Agent or AgentOS in v1. Package: `agno[os,agui]`, managed with **uv**.
 
-## R4 — Streaming protocol (browser ↔ backend)
+Minimal bootstrap:
 
-**Decision**: **Server-Sent Events (SSE)** on `POST /v1/chat/stream` with
-`Content-Type: text/event-stream`. Request body carries full thread history as
-JSON (Constitution **IV** contract in `contracts/openapi.yaml`).
+```python
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from agno.os import AgentOS
+from agno.os.interfaces.agui import AGUI
 
-**Rationale**: SSE is unidirectional (server→client), works over HTTP/1.1,
-simple to consume with `EventSource` or `fetch` + readable stream. Matches FR-003
-progressive reply without WebSocket complexity.
+chat_agent = Agent(
+    name="chat",
+    model=OpenAIChat(id=os.getenv("OPENAI_MODEL", "gpt-4o-mini")),
+    instructions="以繁體中文回覆。",
+    # v1: NO db, tools, memory, knowledge
+)
 
-**Alternatives considered**: WebSocket (bidirectional overkill for request→stream
-pattern); chunked JSON lines (less standard error semantics).
+agent_os = AgentOS(
+    agents=[chat_agent],
+    interfaces=[AGUI(agent=chat_agent)],
+    tracing=False,  # optional off for minimal v1
+)
+app = agent_os.get_app()
+# + mount /v1/health router (project-owned)
+```
 
-## R5 — Frontend stack
+Default port **7777** (`AGENT_OS_PORT`). Credentials: `OPENAI_API_KEY` (required).
 
-**Decision**: **Vite + React 19 + TypeScript**. Config: `VITE_API_BASE_URL`
-(required at build/dev time; empty → UI blocks chat per clarification **B**).
+**Rationale**: AgentOS is FastAPI under the hood (Constitution I compatible).
+AG-UI exposes `POST /agui` (stream) and `GET /status`. Omitting `db` keeps v1
+stateless per spec clarification **A** and FR-010.
 
-**Rationale**: Fast local dev, explicit env injection, small component model for
-one chat page. Thread state lives in React state (no persistence).
+**Alternatives considered**: Raw FastAPI + OpenAI SDK (previous plan — more
+custom code); Agno REST `/agents/{id}/runs` with form sessions (conflicts with
+client-owned history unless history passed each time — AG-UI is cleaner for UI).
 
-**Alternatives considered**: Vue/Svelte (fine; React chosen for ecosystem);
-vanilla TS (less structure for streaming state machine).
+## R3 — Frontend: assistant-ui
 
-## R6 — Conversation state
+**Decision**: **Vite + React 19 + TypeScript + assistant-ui** in `apps/web`.
+Runtime: **`@assistant-ui/react-ag-ui`** connected to `{API_BASE}/agui`.
+Scaffold UI via assistant-ui CLI (Thread, Composer primitives).
 
-**Decision**: **Client-owned thread**; each `POST /v1/chat/stream` includes
-complete ordered `messages[]`. Backend is **stateless** (no session store, no DB).
+Config: **`VITE_API_BASE_URL`** (required) → base URL of AgentOS e.g.
+`http://localhost:7777`. Empty → block chat with 繁中 error (spec clarification).
 
-**Rationale**: Spec clarification **A**; satisfies FR-004a and FR-010 (no database).
+**Rationale**: assistant-ui handles streaming display, auto-scroll, composer
+state, and accessibility — directly addresses SC-002 without custom hooks.
+Official AG-UI adapter matches Agno's `AGUI` interface.
 
-## R7 — Health semantics
+**Alternatives considered**: Hand-rolled React chat (previous R5 — rejected on
+re-analysis); Agno `agent-ui` Next.js template (different stack from user ask).
 
-**Decision**: `GET /v1/health` returns JSON with top-level `status`:
-`healthy` | `degraded`. `degraded` when `OPENAI_API_KEY` missing/empty or
-provider probe fails. HTTP **200** for both (body carries semantics); UI treats
-`degraded` as not ready.
+## R4 — Boundary protocol (Constitution IV)
 
-**Rationale**: Clarification **B** — process up but creds bad ≠ healthy. HTTP 200
-allows load balancers to distinguish process death (connection error) vs logical
-unready (parse body).
+**Decision**: Primary chat boundary = **AG-UI protocol** (pinned ref in
+`contracts/ag-ui-boundary.md`). Supplementary **OpenAPI 3.1** for project-owned
+**`GET /v1/health`** in `contracts/health.openapi.yaml` (credential readiness
+semantics from spec clarification **B**).
 
-**Alternatives considered**: HTTP 503 on degraded (rejected: conflates crash with
-config issue for simple local ops).
+| Endpoint | Owner | Purpose |
+|----------|-------|---------|
+| `POST /agui` | Agno `AGUI` | Stream chat (AG-UI events) |
+| `GET /status` | Agno `AGUI` | Interface liveness (informational) |
+| `GET /v1/health` | `apps/api` thin router | Spec acceptance: healthy/degraded + credential checks |
 
-## R8 — Observability
+**Rationale**: AG-UI is the industry-facing agent↔UI contract; `/v1/health`
+preserves spec testability without reimplementing chat streaming.
 
-**Decision**: Structured JSON logs per request (`request_id`, `event`, `duration_ms`,
-`model`, `error_code`). No metrics stack in v1; logs are the primitive (Constitution **VI**).
+## R5 — Conversation state
 
-## R9 — Command surface (Constitution **X**)
+**Decision**: **Unchanged from clarification A** — assistant-ui + AG-UI runtime
+sends full message history in `RunAgentInput`. No Agno session DB; do not pass
+persistent `session_id` for v1 (ephemeral per tab).
 
-**Decision**: Root **`Makefile`** as command index:
+## R6 — Health semantics
+
+**Decision**: **`GET /v1/health`** returns `{ status: healthy|degraded, checks }`.
+`degraded` when `OPENAI_API_KEY` missing/invalid (probe OpenAI models list or
+Agno model init). Agno `GET /status` documented as auxiliary, not acceptance
+substitute.
+
+## R7 — Observability
+
+**Decision**: Structured JSON logs in thin health/chat middleware wrapper
+(`request_id`, `event`). Agno tracing **disabled** in v1 to avoid implicit DB;
+enable in v2 if needed.
+
+## R8 — Command surface (Constitution X)
+
+**Decision**: Root **`Makefile`** targeting `apps/`:
 
 | Command | Action |
 |---------|--------|
-| `make install` | Install backend + frontend deps via uv/npm |
-| `make dev` | Run backend + Vite dev (two terminals or concurrent) |
-| `make build` | Build frontend → `frontend/dist`, verify backend imports |
-| `make test` | Backend unit + integration (same as CI) |
-| `make lint` | Ruff + eslint |
-| `make serve` | Single-process: backend serves API + static dist |
-| `make health` | Curl `/v1/health` |
+| `make install` | `uv sync` in `apps/api`; `pnpm install` in `apps/web` |
+| `make dev` | AgentOS + Vite dev (concurrently) |
+| `make build` | `pnpm build` → `apps/web/dist`; verify api imports |
+| `make test` | pytest in `apps/api` |
+| `make lint` | ruff + eslint |
+| `make serve` | AgentOS serves API + `apps/web/dist` |
+| `make health` | `curl /v1/health` |
 
-CI invokes `make test`, `make lint`, `make build` only.
-
-## R10 — Testing strategy (Constitution **V**)
+## R9 — Testing strategy
 
 **Decision**:
 
-- **Unit**: message validation, SSE event framing, health status derivation
-  (pure functions in `backend/src/`).
-- **Integration**: HTTP tests against FastAPI app with **mocked OpenAI client**
-  (mock what you don't own at boundary tests—OpenAI is external; use dependency
-  override). One integration test with real API marked `@pytest.mark.live` optional.
-- **Contract**: Schemathesis or openapi spec diff in CI (optional v1); manual
-  contract files in `contracts/` are source of truth.
+- **Unit** (`apps/api`): health derivation, env validation helpers
+- **Integration**: FastAPI TestClient for `/v1/health`; AG-UI `/agui` with mocked
+  model stream (patch Agno model or use test double)
+- **E2E manual**: quickstart scenarios via browser
+- **Do not mock** owned `/v1/health` logic; **do mock** OpenAI/Agno model at boundary
 
-All NEEDS CLARIFICATION from Technical Context: **resolved** by decisions above.
+## R10 — v1 Agno feature guardrails (out-of-scope enforcement)
+
+**Decision**: Explicitly **disabled** in v1 Agent definition:
+
+- `db` / SqliteDb / Postgres
+- `tools`, `knowledge`, `enable_agentic_memory`
+- AgentOS: `scheduler`, `mcp_server`, `authorization` (local trust boundary)
+
+Violations of FR-010 caught in code review + quickstart scope check (SC-005).
+
+All NEEDS CLARIFICATION: **resolved**.

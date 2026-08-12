@@ -1,65 +1,61 @@
 # Implementation Plan: Agent Chat App
 
-**Branch**: `001-agent-chat-app` | **Date**: 2026-08-12 | **Spec**: [spec.md](./spec.md)
+**Branch**: `001-agent-chat-app` | **Date**: 2026-08-12 (rev. 2) | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `/specs/001-agent-chat-app/spec.md`
+**Input**: Feature specification from `/specs/001-agent-chat-app/spec.md`  
+**User architecture directive**: `apps/web` (assistant-ui) + `apps/api` (Agno AgentOS)
 
 ## Summary
 
-Deliver a minimal Traditional Chinese agent chat web app: one in-browser thread,
-streaming replies from a real OpenAI model, stateless backend, versioned HTTP
-contract (`/v1/health`, `/v1/chat/stream` SSE), and `VITE_API_BASE_URL` for
-frontend backend configuration.
-
-**Architecture**: FastAPI backend (Python 3.12) + Vite/React/TypeScript SPA.
-Single deployable serves API + built static assets (`make serve`). Local dev may
-run Vite + Uvicorn as two processes for hot reload (justified in Complexity
-Tracking). Client holds thread state and sends full history each turn.
+Traditional Chinese agent chat: one in-browser thread, streaming replies via
+**AG-UI protocol** between **assistant-ui** (`apps/web`) and **Agno AgentOS**
+(`apps/api`). Real OpenAI model (env credentials). Client-owned thread history;
+backend stateless (no DB). Versioned boundaries: AG-UI for chat +
+OpenAPI `/v1/health` for readiness checks. `VITE_API_BASE_URL` configures frontend
+→ API base URL.
 
 ## Technical Context
 
-**Language/Version**: Python 3.12 (backend), TypeScript 5.x (frontend)
+**Language/Version**: Python 3.12 (api), TypeScript 5.x (web)
 
-**Primary Dependencies**: FastAPI, Uvicorn, openai SDK, httpx (backend);
-Vite, React 19 (frontend)
+**Primary Dependencies**:
+- API: `agno[os,agui]`, OpenAI via Agno model driver, uvicorn
+- Web: `@assistant-ui/react`, `@assistant-ui/react-ag-ui`, Vite, React 19
 
-**Storage**: N/A (no database; client session state only)
+**Storage**: N/A (Agent and AgentOS run **without `db`** in v1)
 
-**Testing**: pytest + httpx AsyncClient (backend); vitest optional (frontend v1);
-contract source: `contracts/openapi.yaml`
+**Testing**: pytest + httpx (api); manual/E2E via quickstart (web v1)
 
-**Target Platform**: Linux/macOS local dev; modern browsers (Chrome/Firefox/Safari
-current −1)
+**Target Platform**: Linux/macOS local dev; modern browsers
 
-**Project Type**: web application (SPA + HTTP API)
+**Project Type**: Monorepo web application (`apps/api` + `apps/web`)
 
-**Performance Goals**: First SSE `delta` within 3s p95 on warm backend with valid
-API key; UI remains responsive during streams up to 4000-char messages
+**Performance Goals**: First AG-UI content event within 3s p95; UI responsive
+during long streams (assistant-ui handles virtualization optional later)
 
-**Constraints**: Real OpenAI API required; no stub fallback; Traditional Chinese
-UI copy; no auth/RAG/tools/uploads/production deploy in v1
+**Constraints**: Real OpenAI; 繁中 UI; no auth/DB/RAG/tools/uploads/prod deploy;
+Agno optional features explicitly off
 
-**Scale/Scope**: Single user/session per tab; ≤100 messages per request; local/dev
-trust boundary
+**Scale/Scope**: Single tab/session; local trust boundary
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+*GATE: Pre-Phase 0 and post-Phase 1*
 
-| Principle | Pre-Phase 0 | Post-Phase 1 | Notes |
-|-----------|-------------|--------------|-------|
-| I — No distribute by default | ⚠️ Dev dual-process | ✅ Pass with waiver | Production/CI: one Uvicorn serves API+static. Dev: Vite+Uvicorn documented in Complexity Tracking |
-| II — Deletion over extension | ✅ Pass | ✅ Pass | Flat modules: `api/`, `adapters/`, `domain/`; no plugin framework |
-| III — Explicit dependencies | ✅ Pass | ✅ Pass | FastAPI `Depends()` injects settings + OpenAI client |
-| IV — Contract at boundary | ✅ Pass | ✅ Pass | `contracts/openapi.yaml` v1.0.0; adapter owns OpenAI mapping |
-| V — Test transformation | ✅ Pass | ✅ Pass | Unit: validation/SSE framing; integration: HTTP with mocked OpenAI |
-| VI — Structured events | ✅ Pass | ✅ Pass | JSON logs with `request_id`, `event` per chat/health |
-| VII — Recovery | ✅ Pass | ✅ Pass | No DB; rollback = redeploy prior build |
-| VIII — Attention finite | ✅ N/A v1 | ✅ N/A v1 | No paging/alerting in v1 local scope |
-| IX — Value at user | ✅ Pass | ✅ Pass | quickstart.md defines shipped validation |
-| X — Commands discoverable | ✅ Pass | ✅ Pass | Root Makefile; CI uses same targets |
+| Principle | Status | Notes |
+|-----------|--------|-------|
+| I — No distribute by default | ✅ Pass (waiver) | One deployable via `make serve`; dev dual-process documented |
+| II — Deletion over extension | ✅ Pass | Thin `health` router + minimal Agent config; no custom chat framework |
+| III — Explicit dependencies | ✅ Pass | Settings via env; Agent/model injected in `main.py` only |
+| IV — Contract at boundary | ✅ Pass | AG-UI protocol doc + `health.openapi.yaml` v1.0.0 |
+| V — Test transformation | ✅ Pass | Unit on health logic; integration on HTTP boundaries |
+| VI — Structured events | ✅ Pass | JSON request logs with `request_id` |
+| VII — Recovery | ✅ Pass | No migrations; redeploy rollback |
+| VIII — Attention finite | N/A v1 | |
+| IX — Value at user | ✅ Pass | quickstart.md |
+| X — Commands discoverable | ✅ Pass | Makefile |
 
-**Gate result**: PASS (dev dual-process waiver recorded below).
+**Gate result**: PASS
 
 ## Project Structure
 
@@ -67,82 +63,96 @@ trust boundary
 
 ```text
 specs/001-agent-chat-app/
-├── plan.md              # This file
-├── research.md          # Phase 0
-├── data-model.md        # Phase 1
-├── quickstart.md        # Phase 1
+├── plan.md
+├── research.md              # includes architecture re-analysis
+├── data-model.md
+├── quickstart.md
 ├── contracts/
-│   └── openapi.yaml     # Phase 1 — versioned HTTP contract
-├── checklists/
-│   └── requirements.md
-└── tasks.md             # Phase 2 (/speckit-tasks — not yet created)
+│   ├── ag-ui-boundary.md    # AG-UI chat boundary (version pinned)
+│   └── health.openapi.yaml  # GET /v1/health (project-owned)
+└── checklists/
 ```
 
 ### Source Code (repository root)
 
 ```text
-backend/
-├── pyproject.toml
-├── src/
-│   └── app/
-│       ├── main.py              # FastAPI app factory, static mount
-│       ├── config.py            # Settings from env (explicit)
-│       ├── api/
-│       │   ├── health.py        # GET /v1/health
-│       │   └── chat.py          # POST /v1/chat/stream (SSE)
-│       ├── adapters/
-│       │   └── openai_adapter.py  # OpenAI stream → SSE events
-│       ├── domain/
-│       │   ├── messages.py      # Validation (pure)
-│       │   └── sse.py           # SSE framing (pure)
-│       └── logging.py           # Structured JSON logger
-└── tests/
-    ├── unit/
-    └── integration/
+apps/
+├── api/
+│   ├── pyproject.toml           # agno[os,agui], uv project
+│   ├── src/
+│   │   └── app/
+│   │       ├── main.py          # AgentOS + AGUI + static mount + health router
+│   │       ├── agent.py         # Single Agent factory (no db/tools)
+│   │       ├── config.py        # OPENAI_API_KEY, OPENAI_MODEL, paths
+│   │       ├── health.py        # GET /v1/health (spec semantics)
+│   │       └── logging.py       # Structured JSON logs
+│   └── tests/
+│       ├── unit/
+│       └── integration/
+└── web/
+    ├── package.json
+    ├── vite.config.ts
+    ├── src/
+    │   ├── main.tsx
+    │   ├── App.tsx
+    │   ├── components/
+    │   │   └── assistant-ui/    # CLI-scaffolded Thread/Composer
+    │   ├── lib/
+    │   │   ├── runtime.ts         # useAgUiRuntime({ url: `${base}/agui` })
+    │   │   └── config.ts          # VITE_API_BASE_URL guard
+    │   └── i18n/
+    │       └── zh-TW.ts           # 繁中 labels/errors
+    └── dist/                      # built assets (served by api in prod)
 
-frontend/
-├── package.json
-├── vite.config.ts
-├── index.html
-└── src/
-    ├── main.tsx
-    ├── App.tsx
-    ├── components/
-    │   ├── ChatThread.tsx
-    │   ├── MessageInput.tsx
-    │   └── ConfigError.tsx
-    ├── hooks/
-    │   └── useChatStream.ts
-    ├── lib/
-    │   ├── api.ts               # fetch + SSE consumer
-    │   └── config.ts            # VITE_API_BASE_URL guard
-    └── i18n/
-        └── zh-TW.ts             # Traditional Chinese UI strings
-
-Makefile                         # Command index (install, dev, test, …)
+Makefile
 ```
 
-**Structure Decision**: Web app layout (`backend/` + `frontend/`) with **single
-runtime** for ship (`make serve` mounts `frontend/dist` on FastAPI). Matches
-spec's browser+backend shape while keeping production as one deployable per
-Constitution I.
+**Structure Decision**: User-requested **`apps/` monorepo**. Agno AgentOS owns
+agent execution and AG-UI endpoint; assistant-ui owns chat UX. Single runtime:
+AgentOS serves `apps/web/dist` + `/agui` + `/v1/health`.
+
+## Architecture Diagram
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Browser                                                     │
+│  apps/web — assistant-ui (Thread, Composer)                 │
+│  State: messages[] in runtime (session-only)                 │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ AG-UI protocol (SSE)
+                           │ POST {base}/agui
+                           │ GET  {base}/v1/health  (readiness)
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  apps/api — Agno AgentOS (FastAPI / Uvicorn)                 │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │ AGUI router │  │ /v1/health   │  │ StaticFiles      │  │
+│  │ POST /agui  │  │ (project)    │  │ apps/web/dist    │  │
+│  └──────┬──────┘  └──────────────┘  └──────────────────┘  │
+│         │                                                    │
+│         ▼                                                    │
+│  Agent (no db, no tools) ──► OpenAI API (streaming)         │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| Two processes in `make dev` (Vite + Uvicorn) | Frontend HMR requires Vite dev server; bundling on every save would slow iteration | Single Python-only UI (HTMX) sacrifices streaming UX and TS tooling agreed in research R5 |
-| Separate `backend/` and `frontend/` directories | Clear boundary ownership for OpenAPI contract vs UI; still one deployable via static mount | Monolithic Jinja templates don't match streaming SPA requirement in spec |
+| Dev: Vite + Uvicorn | HMR for assistant-ui components | Rebuilding SPA each save is too slow |
+| Two packages in `apps/` | Clear api vs web ownership | Single Python+inline HTML fails assistant-ui React requirement |
+| AG-UI + `/v1/health` | AG-UI `/status` ≠ spec credential semantics | Custom-only SSE (prev plan) duplicates assistant-ui + Agno value |
 
 ## Phase 0 & Phase 1 Outputs
 
 | Artifact | Path | Status |
 |----------|------|--------|
-| Research | [research.md](./research.md) | ✅ Complete |
-| Data model | [data-model.md](./data-model.md) | ✅ Complete |
-| Contracts | [contracts/openapi.yaml](./contracts/openapi.yaml) | ✅ Complete |
-| Quickstart | [quickstart.md](./quickstart.md) | ✅ Complete |
+| Research (incl. re-analysis) | [research.md](./research.md) | ✅ |
+| Data model | [data-model.md](./data-model.md) | ✅ Updated |
+| AG-UI boundary | [contracts/ag-ui-boundary.md](./contracts/ag-ui-boundary.md) | ✅ |
+| Health contract | [contracts/health.openapi.yaml](./contracts/health.openapi.yaml) | ✅ |
+| Quickstart | [quickstart.md](./quickstart.md) | ✅ Updated |
 
 ## Next Step
 
-Run `/speckit-tasks` to decompose implementation from this plan and contracts.
+Run `/speckit-tasks` to implement `apps/api` and `apps/web` from this plan.
