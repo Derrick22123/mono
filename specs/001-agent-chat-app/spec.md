@@ -15,6 +15,7 @@
 - Q: For v1 acceptance testing, how should the backend agent generate its streamed replies? → A: Real external model required (credentials via environment; chat fails clearly if missing)
 - Q: For follow-up turns in the single thread, who should provide the prior conversation context to the model? → A: UI sends full thread history with every new message (backend stays conversation-stateless)
 - Q: What should the health/status check report when the backend process is running but external model credentials are missing or invalid? → A: Degraded/unhealthy if model credentials are missing or invalid
+- Q: If the frontend backend-location environment variable is unset or empty at startup, what should the web UI do? → A: Show a clear configuration error and block chat until the variable is set
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -95,7 +96,13 @@ reply from that backend.
    variable,
    **When** the user sends a chat message from the web UI,
    **Then** the UI uses that configured location (not a hardcoded alternate).
-2. **Given** the environment variable is changed to another valid backend
+2. **Given** the backend-location environment variable is unset or empty when
+   the UI loads,
+   **When** the user opens the chat page,
+   **Then** the UI shows a clear configuration error and blocks chat (send
+   disabled or rejected) until a valid value is provided and the UI is
+   reloaded/restarted as needed.
+3. **Given** the environment variable is changed to another valid backend
    location and the UI is restarted/reloaded as required for config pickup,
    **When** the user sends a message,
    **Then** traffic goes to the newly configured location.
@@ -117,9 +124,9 @@ reply from that backend.
 - Concurrent double-submit while a reply is streaming: the UI MUST prevent a
   second overlapping send (disable send or queue policy: reject second send
   until the current stream finishes).
-- External model credentials missing or invalid: chat MUST fail with a clear
-  user-visible error (no fake/stubbed reply content); health/status MUST report
-  degraded/unhealthy (not healthy/ready).
+- Backend-location environment variable unset or empty at UI load: the UI MUST
+  show a clear configuration error and block chat until a valid value is set
+  (no silent fallback to a default URL).
 
 ## Requirements *(mandatory)*
 
@@ -141,7 +148,9 @@ reply from that backend.
   degraded/unhealthy when model credentials are missing or invalid, even if the
   backend process is running.
 - **FR-006**: The web UI's backend location MUST be configurable via an
-  environment variable without requiring source code edits.
+  environment variable without requiring source code edits. If that variable is
+  unset or empty at UI load, the UI MUST show a clear configuration error and
+  block chat until a valid value is provided.
 - **FR-007**: While a reply is streaming, the UI MUST show in-progress reply
   content and a clear busy/streaming state.
 - **FR-008**: When the backend fails or the stream errors, the UI MUST show a
@@ -203,6 +212,8 @@ reply from that backend.
 - "Environment variable" for the frontend backend location is set in the
   environment used to build or serve the web UI, consistent with common local
   web-app practice; exact variable name is left to planning/implementation docs.
+  There is no built-in default URL—an unset or empty value MUST block chat with
+  a visible configuration error.
 - Traditional Chinese input is required; agent replies are expected to be
   intelligible chat text (Traditional Chinese preferred when the user writes in
   Traditional Chinese) but multilingual edge cases are not a v1 goal.
