@@ -13,6 +13,7 @@
 ### Session 2026-08-12
 
 - Q: For v1 acceptance testing, how should the backend agent generate its streamed replies? → A: Real external model required (credentials via environment; chat fails clearly if missing)
+- Q: For follow-up turns in the single thread, who should provide the prior conversation context to the model? → A: UI sends full thread history with every new message (backend stays conversation-stateless)
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -42,7 +43,9 @@ other features required.
    final dump after completion).
 3. **Given** the user has already exchanged messages in this session,
    **When** they send another message,
-   **Then** it appends to the same single thread (no second thread is created).
+   **Then** it appends to the same single thread (no second thread is created),
+   and the request includes the full ordered thread history so the agent can
+   respond in context.
 
 ---
 
@@ -125,6 +128,9 @@ reply from that backend.
   return an agent reply as a progressive stream of text visible in that thread.
 - **FR-004**: v1 MUST support exactly one chat thread per UI session (no thread
   list, create-thread, or switch-thread flows).
+- **FR-004a**: For each new user message, the web UI MUST send the full ordered
+  thread history (all prior user and agent messages in the session) with the
+  request. The backend MUST NOT rely on server-side conversation storage in v1.
 - **FR-005**: The backend MUST expose a health/status check that indicates
   whether the service is available.
 - **FR-006**: The web UI's backend location MUST be configurable via an
@@ -145,7 +151,8 @@ reply from that backend.
 ### Key Entities
 
 - **Chat Thread**: The single conversation container for the session; holds an
-  ordered sequence of messages; no multi-thread identity in v1.
+  ordered sequence of messages; no multi-thread identity in v1. The UI retains
+  thread state client-side and submits the full history on each send.
 - **Message**: A user or agent utterance with role (user/agent), text content,
   and position in the thread order.
 - **Streamed Reply**: An in-progress agent message whose text grows until the
@@ -179,9 +186,10 @@ reply from that backend.
   real external model with environment-supplied credentials (no stub fallback).
 - Acceptance of streaming chat assumes valid model credentials are configured in
   the test environment.
-- Conversation context for follow-up turns is kept for the lifetime of the UI
-  session in the single thread; persistence across browser refresh or process
-  restart is not required in v1.
+- Conversation context for follow-up turns is kept in the web UI for the
+  session; each send includes the full ordered thread history. The backend is
+  conversation-stateless in v1. Persistence across browser refresh or process
+  restart is not required.
 - "Environment variable" for the frontend backend location is set in the
   environment used to build or serve the web UI, consistent with common local
   web-app practice; exact variable name is left to planning/implementation docs.
