@@ -16,6 +16,7 @@
 - Q: For follow-up turns in the single thread, who should provide the prior conversation context to the model? → A: UI sends full thread history with every new message (backend stays conversation-stateless)
 - Q: What should the health/status check report when the backend process is running but external model credentials are missing or invalid? → A: Degraded/unhealthy if model credentials are missing or invalid
 - Q: If the frontend backend-location environment variable is unset or empty at startup, what should the web UI do? → A: Show a clear configuration error and block chat until the variable is set
+- Q: What language should user-facing UI text use for errors, labels, and empty states in v1? → A: Traditional Chinese for all user-facing UI text
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -127,6 +128,9 @@ reply from that backend.
 - Backend-location environment variable unset or empty at UI load: the UI MUST
   show a clear configuration error and block chat until a valid value is set
   (no silent fallback to a default URL).
+- External model credentials missing or invalid: chat MUST fail with a clear
+  user-visible error (no fake/stubbed reply content); health/status MUST report
+  degraded/unhealthy (not healthy/ready).
 
 ## Requirements *(mandatory)*
 
@@ -136,6 +140,9 @@ reply from that backend.
   conversation thread.
 - **FR-002**: Users MUST be able to enter Traditional Chinese text and submit it
   as a chat message.
+- **FR-002a**: All user-facing UI text in v1 (errors, labels, empty states,
+  configuration messages, and busy/streaming indicators) MUST be in Traditional
+  Chinese.
 - **FR-003**: The system MUST append the user's message to the single thread and
   return an agent reply as a progressive stream of text visible in that thread.
 - **FR-004**: v1 MUST support exactly one chat thread per UI session (no thread
@@ -217,6 +224,8 @@ reply from that backend.
 - Traditional Chinese input is required; agent replies are expected to be
   intelligible chat text (Traditional Chinese preferred when the user writes in
   Traditional Chinese) but multilingual edge cases are not a v1 goal.
+- All user-facing UI copy (errors, labels, empty states) MUST be Traditional
+  Chinese in v1; operator/developer docs may use another language.
 - A browser-based UI talking to a backend agent process is in scope as the
   minimal shape of this product; additional services, queues, or databases are
   out of scope (aligned with keeping distribution minimal for v1).
