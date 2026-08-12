@@ -77,6 +77,18 @@ If `OPENAI_API_KEY` is missing or invalid, `POST /agui` MUST respond with **503*
 and JSON `ErrorResponse` (`code`, `message`) **before** any SSE stream starts —
 no fake or stubbed reply content (FR-011).
 
+Example (credentials missing):
+
+```json
+HTTP/1.1 503 Service Unavailable
+Content-Type: application/json
+
+{
+  "code": "MODEL_CREDENTIALS_MISSING",
+  "message": "OPENAI_API_KEY 未設定，無法開始對話。"
+}
+```
+
 ## Versioning policy
 
 - **Breaking** AG-UI protocol changes → bump pinned protocol ref + migration note.

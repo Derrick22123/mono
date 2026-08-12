@@ -60,7 +60,8 @@ UI scenario 3 for acceptance.)
 3. Verify UI copy is **繁體中文**
 4. Send: `請用三句話介紹你自己`
 5. Observe streaming partial text before completion (SC-002)
-6. Follow-up: `剛才第一句是什麼？` — agent MUST reference first reply sentence (FR-004a / AG-UI full `messages[]`)
+6. Follow-up: `剛才第一句是什麼？` — agent MUST reference first reply sentence (FR-004a / AG-UI full `messages[]`). Verify via integration test `tests/integration/test_agui_history.py` or browser multi-turn.
+7. Confirm prior assistant message remains visible after stream completes; refresh clears thread (v1 session-only).
 
 ## Scenario 4 — Missing `VITE_API_BASE_URL`
 
