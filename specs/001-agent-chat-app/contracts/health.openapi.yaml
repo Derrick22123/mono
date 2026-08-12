@@ -1,0 +1,70 @@
+openapi: 3.1.0
+info:
+  title: Agent Chat Health API
+  version: 1.0.0
+  description: |
+    Project-owned readiness endpoint for mono agent chat v1.
+    Chat streaming uses AG-UI at POST /agui (see ag-ui-boundary.md).
+
+servers:
+  - url: http://localhost:7777
+    description: Local Agno AgentOS default port
+
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Chat readiness check (model credentials + reachability)
+      tags: [system]
+      responses:
+        "200":
+          description: Process running; inspect body.status for chat readiness
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                healthy:
+                  value:
+                    status: healthy
+                    version: "1.0.0"
+                    checks:
+                      process: ok
+                      model_credentials: ok
+                      model_reachable: ok
+                degraded:
+                  value:
+                    status: degraded
+                    version: "1.0.0"
+                    checks:
+                      process: ok
+                      model_credentials: missing
+                      model_reachable: skipped
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, version, checks]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded]
+        version:
+          type: string
+          pattern: '^\d+\.\d+\.\d+$'
+        checks:
+          type: object
+          required: [process, model_credentials, model_reachable]
+          additionalProperties: false
+          properties:
+            process:
+              type: string
+              enum: [ok]
+            model_credentials:
+              type: string
+              enum: [ok, missing, invalid]
+            model_reachable:
+              type: string
+              enum: [ok, failed, skipped]
