@@ -14,6 +14,7 @@
 
 - Q: For v1 acceptance testing, how should the backend agent generate its streamed replies? → A: Real external model required (credentials via environment; chat fails clearly if missing)
 - Q: For follow-up turns in the single thread, who should provide the prior conversation context to the model? → A: UI sends full thread history with every new message (backend stays conversation-stateless)
+- Q: What should the health/status check report when the backend process is running but external model credentials are missing or invalid? → A: Degraded/unhealthy if model credentials are missing or invalid
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -62,10 +63,14 @@ and receive a successful healthy indication without sending a chat message.
 
 **Acceptance Scenarios**:
 
-1. **Given** the backend is running normally,
+1. **Given** the backend is running normally with valid model credentials,
    **When** someone requests the health/status check,
    **Then** the response indicates the service is healthy/available.
-2. **Given** the backend is not running,
+2. **Given** the backend process is running but model credentials are missing
+   or invalid,
+   **When** someone requests the health/status check,
+   **Then** the response indicates degraded/unhealthy (not healthy/ready).
+3. **Given** the backend is not running,
    **When** someone requests the health/status check,
    **Then** the check fails in an obvious way (no false "healthy" result).
 
@@ -113,8 +118,8 @@ reply from that backend.
   second overlapping send (disable send or queue policy: reject second send
   until the current stream finishes).
 - External model credentials missing or invalid: chat MUST fail with a clear
-  user-visible error (no fake/stubbed reply content); health/status MAY still
-  report the local backend process as available.
+  user-visible error (no fake/stubbed reply content); health/status MUST report
+  degraded/unhealthy (not healthy/ready).
 
 ## Requirements *(mandatory)*
 
@@ -132,7 +137,9 @@ reply from that backend.
   thread history (all prior user and agent messages in the session) with the
   request. The backend MUST NOT rely on server-side conversation storage in v1.
 - **FR-005**: The backend MUST expose a health/status check that indicates
-  whether the service is available.
+  whether the service is available for chat. The check MUST report
+  degraded/unhealthy when model credentials are missing or invalid, even if the
+  backend process is running.
 - **FR-006**: The web UI's backend location MUST be configurable via an
   environment variable without requiring source code edits.
 - **FR-007**: While a reply is streaming, the UI MUST show in-progress reply
@@ -157,8 +164,9 @@ reply from that backend.
   and position in the thread order.
 - **Streamed Reply**: An in-progress agent message whose text grows until the
   stream completes or fails.
-- **Backend Availability**: The healthy/unhealthy status exposed by the
-  health/status check.
+- **Backend Availability**: The healthy/degraded/unhealthy status exposed by the
+  health/status check, reflecting readiness to serve chat (including valid
+  model credentials), not merely process uptime.
 
 ## Success Criteria *(mandatory)*
 
@@ -170,8 +178,10 @@ reply from that backend.
 - **SC-002**: During a successful reply, users can observe partial reply text
   before the full reply finishes in at least 90% of successful test sends
   (streaming is visible, not batch-only).
-- **SC-003**: An operator can confirm backend availability via the
-  health/status check in under 30 seconds when the backend is running.
+- **SC-003**: An operator can confirm backend chat readiness via the
+  health/status check in under 30 seconds when the backend is running with valid
+  model credentials; the same check reports degraded/unhealthy within 30 seconds
+  when credentials are missing or invalid.
 - **SC-004**: Changing only the documented environment variable (plus any
   required UI reload/restart) is sufficient to point the web UI at a different
   valid backend; no source edit is required—verified in a config-switch test.
@@ -201,6 +211,5 @@ reply from that backend.
   out of scope (aligned with keeping distribution minimal for v1).
 - No authentication means the chat endpoint is treated as a local/dev trust
   boundary only; hardening for public internet exposure is out of scope.
-- Health/status is a simple availability signal for the chat backend, not a deep
-  dependency graph of third-party model providers (unless trivially included
-  later in planning without expanding product scope).
+- Health/status reflects chat readiness, including valid model credentials;
+  a running process alone is insufficient for a healthy result.
