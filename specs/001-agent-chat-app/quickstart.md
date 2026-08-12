@@ -52,12 +52,15 @@ UI scenario 3 for acceptance.)
 
 ## Scenario 3 — Full UI flow (spec P1)
 
+> **MVP note**: Demo MVP (US1 only) requires `export VITE_API_BASE_URL=...` manually.
+> ConfigError UI and empty-env blocking ship in US3 (tasks T037–T040).
+
 1. `make dev`
 2. Open Vite URL (e.g. `http://localhost:5173`)
 3. Verify UI copy is **繁體中文**
 4. Send: `請用三句話介紹你自己`
-5. Observe streaming partial text (SC-002)
-6. Follow-up: `剛才第一句是什麼？` — confirms full history via AG-UI
+5. Observe streaming partial text before completion (SC-002)
+6. Follow-up: `剛才第一句是什麼？` — agent MUST reference first reply sentence (FR-004a / AG-UI full `messages[]`)
 
 ## Scenario 4 — Missing `VITE_API_BASE_URL`
 
@@ -79,6 +82,11 @@ make build && make serve
 ## Out-of-scope verification (SC-005)
 
 Confirm v1 Agent has no `db`, tools, RAG, login, or upload UI.
+
+Additional checks (task T045):
+
+- No new `*.db` or session persistence files appear in the repo after a full chat session
+- `apps/api/src/app/agent.py` has no `db=` / `SqliteDb` / tools configuration
 
 ## Optional: Agno AG-UI `/status`
 

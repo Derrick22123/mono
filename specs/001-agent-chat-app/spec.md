@@ -153,7 +153,8 @@ reply from that backend.
 - **FR-005**: The backend MUST expose a health/status check that indicates
   whether the service is available for chat. The check MUST report
   degraded/unhealthy when model credentials are missing or invalid, even if the
-  backend process is running.
+  backend process is running. **Acceptance health check**: `GET /v1/health`
+  (project-owned). AG-UI `GET /status` is auxiliary per plan.md.
 - **FR-006**: The web UI's backend location MUST be configurable via an
   environment variable without requiring source code edits. If that variable is
   unset or empty at UI load, the UI MUST show a clear configuration error and

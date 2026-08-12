@@ -12,7 +12,8 @@ Traditional Chinese agent chat: one in-browser thread, streaming replies via
 (`apps/api`). Real OpenAI model (env credentials). Client-owned thread history;
 backend stateless (no DB). Versioned boundaries: AG-UI for chat +
 OpenAPI `/v1/health` for readiness checks. `VITE_API_BASE_URL` configures frontend
-→ API base URL.
+→ API base URL. If model credentials are missing/invalid, chat MUST return **503
+JSON** before streaming starts (no fake SSE content) — see FR-011.
 
 ## Technical Context
 

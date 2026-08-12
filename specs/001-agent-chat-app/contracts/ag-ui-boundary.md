@@ -73,6 +73,10 @@ If `VITE_API_BASE_URL` unset/empty → web app blocks chat (spec FR-006).
 Agno Agent MUST NOT configure: `db`, tools, knowledge, memory. AgentOS MUST NOT
 enable: `scheduler`, `mcp_server`, `authorization` (local dev only).
 
+If `OPENAI_API_KEY` is missing or invalid, `POST /agui` MUST respond with **503**
+and JSON `ErrorResponse` (`code`, `message`) **before** any SSE stream starts —
+no fake or stubbed reply content (FR-011).
+
 ## Versioning policy
 
 - **Breaking** AG-UI protocol changes → bump pinned protocol ref + migration note.
