@@ -8,7 +8,9 @@ See [specs/001-agent-chat-app/quickstart.md](specs/001-agent-chat-app/quickstart
 
 ```bash
 make install
-export OPENAI_API_KEY=sk-...
+export OPENAI_API_KEY=sk-...          # or DEEPSEEK_API_KEY
+export OPENAI_BASE_URL=https://api.deepseek.com   # optional; this is the default
+export OPENAI_MODEL=deepseek-v4-flash             # or deepseek-v4-pro
 export VITE_API_BASE_URL=http://localhost:7777
 make dev   # run `make api` and `make web` in separate terminals
 ```

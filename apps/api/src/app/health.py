@@ -41,14 +41,16 @@ async def probe_model_reachable(
     *,
     api_key: str,
     model: str,
+    base_url: str,
     client: httpx.AsyncClient | None = None,
 ) -> ReachabilityStatus:
-    """Perform a lightweight OpenAI models request to verify credentials."""
+    """Perform a lightweight models request against the configured API base URL."""
     owns_client = client is None
     http_client = client or httpx.AsyncClient(timeout=5.0)
+    models_url = f"{base_url.rstrip('/')}/v1/models"
     try:
         response = await http_client.get(
-            "https://api.openai.com/v1/models",
+            models_url,
             headers={"Authorization": f"Bearer {api_key}"},
         )
         if response.status_code == 401:
@@ -75,6 +77,7 @@ async def build_health_payload(
         model_reachable = await probe_model_reachable(
             api_key=settings.openai_api_key or "",
             model=settings.openai_model,
+            base_url=settings.openai_base_url,
             client=client,
         )
 

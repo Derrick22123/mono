@@ -18,7 +18,8 @@ from app.main import build_app
 def test_settings(tmp_path) -> Settings:
     return Settings(
         openai_api_key="sk-test-key",
-        openai_model="gpt-4o-mini",
+        openai_model="deepseek-v4-flash",
+        openai_base_url="https://api.deepseek.com",
         agent_os_port=7777,
         web_dist_path=tmp_path / "dist",
         api_version="1.0.0",
@@ -31,7 +32,8 @@ def settings_factory(tmp_path):
     def _make(*, api_key: str | None = "sk-test123") -> Settings:
         return Settings(
             openai_api_key=api_key,
-            openai_model="gpt-4o-mini",
+            openai_model="deepseek-v4-flash",
+            openai_base_url="https://api.deepseek.com",
             agent_os_port=7777,
             web_dist_path=tmp_path / "dist",
             api_version="1.0.0",

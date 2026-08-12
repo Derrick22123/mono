@@ -75,7 +75,7 @@ class AguiGuardMiddleware(BaseHTTPMiddleware):
                     status_code=503,
                     content={
                         "code": "MODEL_CREDENTIALS_MISSING",
-                        "message": "OPENAI_API_KEY 未設定，無法開始對話。",
+                        "message": "模型 API Key 未設定，無法開始對話。",
                     },
                 )
 
@@ -138,6 +138,7 @@ def build_app(
     chat_agent = agent or create_agent(
         api_key=resolved_settings.openai_api_key,
         model_id=resolved_settings.openai_model,
+        base_url=resolved_settings.openai_base_url,
     )
 
     agent_os = AgentOS(

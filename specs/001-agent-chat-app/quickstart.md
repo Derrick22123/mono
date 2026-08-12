@@ -16,8 +16,9 @@
 
 | Variable | Where | Required | Example |
 |----------|-------|----------|---------|
-| `OPENAI_API_KEY` | `apps/api` | yes | `sk-...` |
-| `OPENAI_MODEL` | `apps/api` | no | `gpt-4o-mini` |
+| `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` | `apps/api` | yes | `sk-...` |
+| `OPENAI_BASE_URL` | `apps/api` | no | `https://api.deepseek.com` |
+| `OPENAI_MODEL` | `apps/api` | no | `deepseek-v4-flash` |
 | `AGENT_OS_PORT` | `apps/api` | no | `7777` (default) |
 | `VITE_API_BASE_URL` | `apps/web` | yes | `http://localhost:7777` |
 

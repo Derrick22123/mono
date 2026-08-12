@@ -11,6 +11,7 @@ from pathlib import Path
 class Settings:
     openai_api_key: str | None
     openai_model: str
+    openai_base_url: str
     agent_os_port: int
     web_dist_path: Path
     api_version: str
@@ -32,8 +33,9 @@ def get_settings() -> Settings:
     web_dist_path = Path(dist_override) if dist_override else _repo_root() / "apps" / "web" / "dist"
 
     return Settings(
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        openai_api_key=os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY"),
+        openai_model=os.getenv("OPENAI_MODEL", "deepseek-v4-flash"),
+        openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com").rstrip("/"),
         agent_os_port=port,
         web_dist_path=web_dist_path,
         api_version="1.0.0",
